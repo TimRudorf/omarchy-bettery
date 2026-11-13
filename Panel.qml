@@ -61,7 +61,7 @@ Panel {
 
   function findCare() {
     var api = root.bar ? root.bar.shell : null
-    var service = api && typeof api.serviceFor === "function" ? api.serviceFor("bettery") : null
+    var service = api && typeof api.serviceFor === "function" ? api.serviceFor("io.github.timrudorf.bettery") : null
     if (service) root.care = service
   }
 

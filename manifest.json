@@ -1,9 +1,10 @@
 {
   "schemaVersion": 1,
-  "id": "bettery",
+  "id": "io.github.timrudorf.bettery",
   "name": "Bettery Life",
   "version": "0.1.0",
   "author": "Tim Rudorf",
+  "license": "MIT",
   "description": "Omarchy's power widget with battery care: charge limit, sailing, top up, pause and discharge",
   "kinds": [
     "service",

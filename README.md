@@ -1,5 +1,7 @@
 # Bettery Life for Omarchy
 
+![Bettery Life panel](preview.png)
+
 Omarchy's power widget with battery care, in the spirit of AlDente on macOS.
 It replaces the built-in `omarchy.power` widget in place and keeps everything
 it does (battery stats, power profiles, percentage toggle, `Super+Ctrl+P`),
@@ -34,7 +36,7 @@ charge limit the widget behaves exactly like Omarchy's.
 
 ```sh
 omarchy plugin add https://github.com/TimRudorf/omarchy-bettery.git --enable
-sudo ~/.config/omarchy/plugins/bettery/install.sh
+sudo ~/.config/omarchy/plugins/io.github.timrudorf.bettery/install.sh
 ```
 
 `install.sh` is a one-time setup and the only part that needs root. It adds
@@ -45,13 +47,26 @@ sudo ~/.config/omarchy/plugins/bettery/install.sh
 - a suspend hook that ends a forced discharge before the system sleeps, so the
   battery never drains unattended.
 
-Undo it with `sudo ~/.config/omarchy/plugins/bettery/install.sh --remove`.
-`omarchy plugin disable bettery` puts the built-in power widget back.
+The [Uninstall](#uninstall) section undoes it.
+`omarchy plugin disable io.github.timrudorf.bettery` puts the built-in power widget back.
+
+## Uninstall
+
+```sh
+~/.config/omarchy/plugins/io.github.timrudorf.bettery/bin/bettery off
+sudo ~/.config/omarchy/plugins/io.github.timrudorf.bettery/install.sh --remove
+omarchy plugin remove io.github.timrudorf.bettery
+rm -f ~/.config/omarchy/bettery.json
+```
+
+Removing the plugin restores Omarchy's power widget. The driver keeps the
+last charge limit it was given, so run `bettery off` before uninstalling if
+the battery should charge to 100 % again.
 
 ## Command line
 
 ```sh
-~/.config/omarchy/plugins/bettery/bin/bettery status
+~/.config/omarchy/plugins/io.github.timrudorf.bettery/bin/bettery status
 bettery on | off | toggle
 bettery limit 75 80      # resume below 75 %, stop at 80 %
 bettery top-up | pause | discharge | resume
