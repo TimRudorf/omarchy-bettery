@@ -1,0 +1,49 @@
+#!/bin/bash
+
+# Battery care from the command line, through the running Omarchy shell.
+
+set -euo pipefail
+
+usage() {
+  cat <<USAGE
+Usage: bettery <command>
+
+  status              show limit, mode and battery state (JSON)
+  on | off | toggle   switch the charge limit on or off
+  limit START END     charge to END%, resume below START% (e.g. limit 75 80)
+  limit END           batteries without a start threshold
+  top-up              charge to 100% once; the limit returns when unplugged
+  pause               stop charging where the battery is now
+  discharge           run from the battery while plugged in, down to the limit
+  resume              end top up, pause or discharge
+USAGE
+}
+
+call() { omarchy-shell bettery "$@"; }
+
+case "${1:-}" in
+  status) call status ;;
+  on) call enable ;;
+  off) call disable ;;
+  toggle) call toggle ;;
+  limit)
+    shift
+    for value in "$@"; do
+      [[ $value =~ ^[0-9]{1,3}$ ]] || { echo "bettery: not a percentage: $value" >&2; exit 2; }
+    done
+    if (( $# == 1 )); then
+      call setLimit "$(( 10#$1 - 5 ))" "$(( 10#$1 ))"
+    elif (( $# == 2 )); then
+      call setLimit "$1" "$2"
+    else
+      usage >&2
+      exit 2
+    fi
+    ;;
+  top-up) call topUp ;;
+  pause) call pause ;;
+  discharge) call discharge ;;
+  resume) call resume ;;
+  -h | --help | "") usage ;;
+  *) usage >&2; exit 2 ;;
+esac

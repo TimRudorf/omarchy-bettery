@@ -1,0 +1,10 @@
+#!/bin/sh
+# Installed by omarchy-bettery. A forced discharge is watched by the shell,
+# which sleeps with the system, so stop it before suspending rather than
+# letting the battery drain unattended.
+[ "$1" = "pre" ] || exit 0
+for f in /sys/class/power_supply/*/charge_behaviour; do
+  [ -e "$f" ] || continue
+  grep -q '\[force-discharge\]' "$f" && printf auto >"$f"
+done
+exit 0

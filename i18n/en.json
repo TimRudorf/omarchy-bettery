@@ -1,0 +1,15 @@
+{
+  "care.title": "BATTERY CARE",
+  "care.stopAt": "Stop charging at",
+  "care.resumeAt": "Resume charging below",
+  "care.setup": "Battery care needs a one-time setup that lets you change the charge limit. Run in a terminal: sudo %1",
+  "action.topUp": "Top up",
+  "action.pause": "Pause",
+  "action.discharge": "Discharge",
+  "status.holding": "Holding at %1",
+  "status.topUp": "Topping up to 100%",
+  "status.paused": "Charging paused",
+  "status.dischargingTo": "Discharging to %1",
+  "stats.health": "Health",
+  "stats.paused": "Paused"
+}

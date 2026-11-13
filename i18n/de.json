@@ -1,0 +1,15 @@
+{
+  "care.title": "AKKU SCHONEN",
+  "care.stopAt": "Laden stoppen bei",
+  "care.resumeAt": "Wieder laden unter",
+  "care.setup": "Für den Akkuschutz ist eine einmalige Einrichtung nötig, damit du die Ladegrenze ändern kannst. Im Terminal ausführen: sudo %1",
+  "action.topUp": "Aufladen",
+  "action.pause": "Pausieren",
+  "action.discharge": "Entladen",
+  "status.holding": "Gehalten bei %1",
+  "status.topUp": "Lädt einmal auf 100 %",
+  "status.paused": "Laden pausiert",
+  "status.dischargingTo": "Entlädt auf %1",
+  "stats.health": "Zustand",
+  "stats.paused": "Pausiert"
+}

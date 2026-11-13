@@ -6,6 +6,7 @@ import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
+import "Bettery.js" as Bettery
 
 Panel {
   id: root
@@ -20,6 +21,90 @@ Panel {
   property string activeProfile: ""
   property int profileIndex: 0
   property bool cursorActive: false
+
+  // ---------- Battery care (sailing) ----------
+  // The plugin's own service owns the hardware; the panel reads it and calls it.
+  Commons.Translations { id: strings; directory: Qt.resolvedUrl("i18n") }
+  property var care: null
+  // Slider values while a handle is held, so the hardware is written on release.
+  property var draftLimits: null
+  // Keyboard rows, top to bottom: care, end, start, actions, profiles.
+  property string cursorRow: "care"
+  property int actionIndex: 0
+  readonly property var careHw: care ? care.hw : Bettery.parseStatus("")
+  readonly property bool careSupported: !!care && careHw.supported
+  readonly property bool careWritable: careSupported && careHw.writable
+  readonly property bool careEnabled: careSupported && care.enabled
+  readonly property string careMode: careSupported ? care.mode : "normal"
+  // Pause and discharge stop the flow into the battery although the charger is in.
+  readonly property bool careStopsCharging: careMode === "pause" || careMode === "discharge"
+  readonly property var shownLimits: draftLimits || (care ? care.limits : Bettery.clampLimits())
+  readonly property var careActions: {
+    if (!careWritable || UPower.onBattery) return []
+    var list = []
+    if (careEnabled) list.push({ id: "topUp", icon: Bettery.modeIcon("topUp"), label: strings.t("action.topUp") })
+    if (careHw.canPause) list.push({ id: "pause", icon: Bettery.modeIcon("pause"), label: strings.t("action.pause") })
+    if (careEnabled && careHw.canDischarge) list.push({ id: "discharge", icon: Bettery.modeIcon("discharge"), label: strings.t("action.discharge") })
+    return list
+  }
+  readonly property var cursorRows: {
+    var rows = []
+    if (careWritable) rows.push("care")
+    if (careWritable && careEnabled) {
+      rows.push("end")
+      if (careHw.hasStart) rows.push("start")
+    }
+    if (careActions.length > 0) rows.push("actions")
+    if (profiles.length > 0) rows.push("profiles")
+    return rows
+  }
+
+  function findCare() {
+    var api = root.bar ? root.bar.shell : null
+    var service = api && typeof api.serviceFor === "function" ? api.serviceFor("bettery") : null
+    if (service) root.care = service
+  }
+
+  function careLabel() {
+    if (careMode === "topUp") return strings.t("status.topUp")
+    if (careMode === "pause") return strings.t("status.paused")
+    if (careMode === "discharge") return strings.t("status.dischargingTo").arg(root.reading(shownLimits.end + "%"))
+    return ""
+  }
+
+  function moveCursorRow(dy) {
+    var rows = cursorRows
+    if (rows.length === 0) return
+    var idx = rows.indexOf(cursorRow)
+    cursorRow = rows[idx < 0 ? 0 : Math.max(0, Math.min(rows.length - 1, idx + dy))]
+  }
+
+  function moveCursorColumn(dx) {
+    if (cursorRow === "end") commitLimits(Bettery.withEnd(shownLimits, shownLimits.end + dx))
+    else if (cursorRow === "start") commitLimits(Bettery.withStart(shownLimits, shownLimits.start + dx))
+    else if (cursorRow === "actions") actionIndex = Model.clampIndex(actionIndex + dx, careActions.length)
+    else if (cursorRow === "profiles") selectProfileByDelta(dx)
+  }
+
+  function activateCursor() {
+    if (cursorRow === "care") care.setEnabled(!care.enabled)
+    else if (cursorRow === "actions" && careActions[actionIndex]) care.toggleMode(careActions[actionIndex].id)
+    else if (cursorRow === "profiles") activateSelectedProfile()
+  }
+
+  function commitLimits(limits) {
+    draftLimits = null
+    if (care) care.setLimits(limits.start, limits.end)
+  }
+
+  Timer {
+    interval: 1000
+    running: !root.care
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: root.findCare()
+  }
+
   readonly property bool showPercentage: setting("showPercentage", false) === true
   // With the percentage shown the button paints a text block wider than an
   // icon, so the open-panel mark takes the painted width instead of the
@@ -50,6 +135,8 @@ Panel {
 
   function batteryIcon() {
     var device = UPower.displayDevice
+    if (device && device.isPresent && Bettery.modeIcon(root.careMode)) return Bettery.modeIcon(root.careMode)
+    if (device && device.isPresent && root.careSupported && root.care.holding) return Bettery.levelIcon(device.percentage)
     return Model.batteryIcon(device, root.discharging, upowerStates())
   }
 
@@ -71,6 +158,7 @@ Panel {
     return !!(device && device.isPresent && UPower.onBattery)
   }
   readonly property bool chargeThresholdActive: {
+    if (root.careSupported) return root.care.holding
     var device = UPower.displayDevice
     return Model.chargeThresholdActive(device, root.discharging, upowerStates())
   }
@@ -85,7 +173,7 @@ Panel {
 
   readonly property bool charging: {
     var d = UPower.displayDevice
-    return d && d.isPresent && !UPower.onBattery && !root.batteryFlowIdle
+    return d && d.isPresent && !UPower.onBattery && !root.batteryFlowIdle && !root.careStopsCharging
   }
 
   readonly property color batteryFillColor: {
@@ -120,7 +208,7 @@ Panel {
 
   // Whichever list is "active" given the current power state.
   readonly property var activePhrases: {
-    if (fullyCharged) return []
+    if (fullyCharged || careLabel() !== "") return []
     if (charging) return chargingPhrases
     if (discharging) return onBatteryPhrases
     return []
@@ -134,6 +222,8 @@ Panel {
   }
 
   readonly property string heroStatusText: {
+    if (careLabel() !== "") return careLabel()
+    if (chargeThresholdActive && careSupported) return strings.t("status.holding").arg(root.reading(Bettery.rangeLabel(shownLimits, careHw)))
     if (fullyCharged) return Commons.I18n.t("power.fullyCharged")
     if (rotatingPhrases) return activePhrases[phraseIndex % activePhrases.length]
     return modeLabel()
@@ -203,9 +293,12 @@ Panel {
       }
 
       refresh()
+      if (care) care.refresh()
       var idx = profiles.indexOf(activeProfile)
       profileIndex = idx >= 0 ? idx : 0
       cursorActive = false
+      cursorRow = cursorRows.length > 0 ? cursorRows[0] : "profiles"
+      actionIndex = 0
     }
   }
 
@@ -315,10 +408,10 @@ Panel {
       implicitHeight: column.implicitHeight
       onMoveRequested: function(dx, dy) {
         if (!root.cursorActive) { root.cursorActive = true; return }
-        if (dx !== 0) root.selectProfileByDelta(dx)
-        else if (dy !== 0) root.selectProfileByDelta(dy)
+        if (dy !== 0) root.moveCursorRow(dy)
+        else if (dx !== 0) root.moveCursorColumn(dx)
       }
-      onActivateRequested: if (root.cursorActive) root.activateSelectedProfile()
+      onActivateRequested: if (root.cursorActive) root.activateCursor()
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
 
@@ -447,19 +540,147 @@ Panel {
             spacing: Style.spacing.labelGap
             InfoPair { label: Commons.I18n.t("power.batterySize"); value: root.reading(root.batteryInfo.size) }
             InfoPair { label: Commons.I18n.t("power.chargeCycles"); value: root.reading(root.batteryInfo.cycles) || "—" }
+            InfoPair {
+              visible: root.careHw.health > 0
+              label: strings.t("stats.health")
+              value: root.reading(root.careHw.health + "%")
+            }
           }
 
           Column {
             width: (parent.width - parent.spacing) / 2
             spacing: Style.spacing.labelGap
             InfoPair {
-              label: root.chargeThresholdActive ? Commons.I18n.t("power.chargeLimit") : (root.discharging ? Commons.I18n.t("power.timeLeft") : Commons.I18n.t("power.timeToFull"))
-              value: root.chargeThresholdActive ? (root.reading(root.batteryInfo.threshold) || "-") : (root.batteryFlowIdle ? "-" : (root.batteryInfo.time || "—"))
+              readonly property bool showLimit: root.chargeThresholdActive || root.careStopsCharging
+              label: showLimit ? Commons.I18n.t("power.chargeLimit") : (root.discharging ? Commons.I18n.t("power.timeLeft") : Commons.I18n.t("power.timeToFull"))
+              value: showLimit
+                ? (root.careSupported ? root.reading(Bettery.rangeLabel(root.shownLimits, root.careHw)) : (root.reading(root.batteryInfo.threshold) || "-"))
+                : (root.batteryFlowIdle ? "-" : (root.batteryInfo.time || "—"))
             }
             InfoPair {
-              label: root.chargeThresholdActive ? Commons.I18n.t("power.batteryState") : (root.discharging ? Commons.I18n.t("power.discharging") : Commons.I18n.t("power.charging"))
-              value: root.chargeThresholdActive ? Commons.I18n.t("power.holding") : (root.batteryFull ? "-" : root.reading(root.batteryInfo.rate))
+              label: root.careMode === "discharge" ? Commons.I18n.t("power.discharging")
+                : (root.chargeThresholdActive || root.careMode === "pause") ? Commons.I18n.t("power.batteryState")
+                : (root.discharging ? Commons.I18n.t("power.discharging") : Commons.I18n.t("power.charging"))
+              value: root.careMode === "discharge" ? root.reading(root.batteryInfo.rate)
+                : root.careMode === "pause" ? strings.t("stats.paused")
+                : root.chargeThresholdActive ? Commons.I18n.t("power.holding")
+                : (root.batteryFull ? "-" : root.reading(root.batteryInfo.rate))
             }
+          }
+        }
+
+        // ---------- Battery care: charge limit, sailing, top up, pause, discharge ----------
+        PanelSeparator {
+          visible: root.careSupported
+          foreground: root.bar.foreground
+        }
+
+        Column {
+          visible: root.careSupported
+          width: parent.width
+          spacing: Style.space(10)
+
+          Item {
+            width: parent.width
+            implicitHeight: Math.max(careHeader.implicitHeight, careSwitch.implicitHeight)
+
+            PanelSectionHeader {
+              id: careHeader
+              anchors.left: parent.left
+              anchors.right: careSwitch.left
+              anchors.verticalCenter: parent.verticalCenter
+              text: strings.t("care.title")
+              foreground: root.bar.foreground
+              fontFamily: root.bar.fontFamily
+            }
+
+            ToggleSwitch {
+              id: careSwitch
+              visible: root.careWritable
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              checked: root.careEnabled
+              hasCursor: root.cursorActive && root.cursorRow === "care"
+              foreground: root.bar.foreground
+              onHovered: function(on) {
+                if (on) {
+                  root.cursorActive = true
+                  root.cursorRow = "care"
+                }
+              }
+              onToggled: root.care.setEnabled(!root.care.enabled)
+            }
+          }
+
+          CareNote {
+            visible: root.careSupported && !root.careWritable
+            text: strings.t("care.setup").arg(root.care ? root.care.pluginDir + "/install.sh" : "install.sh")
+          }
+
+          LimitSlider {
+            row: "end"
+            visible: root.careWritable && root.careEnabled
+            label: strings.t("care.stopAt")
+            value: root.shownLimits.end
+            minimum: Bettery.MIN_END
+            maximum: Bettery.MAX_END
+            onMovedTo: function(v) { root.draftLimits = Bettery.withEnd(root.shownLimits, v) }
+            onReleasedAt: function(v) { root.commitLimits(Bettery.withEnd(root.shownLimits, v)) }
+          }
+
+          LimitSlider {
+            row: "start"
+            visible: root.careWritable && root.careEnabled && root.careHw.hasStart
+            label: strings.t("care.resumeAt")
+            value: root.shownLimits.start
+            minimum: Bettery.MIN_START
+            maximum: Bettery.MAX_END - 1
+            onMovedTo: function(v) { root.draftLimits = Bettery.withStart(root.shownLimits, v) }
+            onReleasedAt: function(v) { root.commitLimits(Bettery.withStart(root.shownLimits, v)) }
+          }
+
+          Row {
+            id: actionRow
+            visible: root.careActions.length > 0
+            width: parent.width
+            spacing: Style.space(6)
+
+            readonly property real cellWidth: root.careActions.length > 0
+              ? (width - spacing * (root.careActions.length - 1)) / root.careActions.length
+              : 0
+
+            Repeater {
+              model: root.careActions
+              Button {
+                required property var modelData
+                required property int index
+                width: actionRow.cellWidth
+                iconText: modelData.icon
+                iconSize: Style.font.title
+                text: modelData.label
+                fontSize: Style.font.bodySmall
+                foreground: root.bar.foreground
+                fontFamily: root.bar.fontFamily
+                horizontalPadding: Style.spacing.controlPaddingX
+                verticalPadding: Style.spacing.controlPaddingY + Style.space(2)
+                bordered: true
+                active: root.careMode === modelData.id
+                hasCursor: root.cursorActive && root.cursorRow === "actions" && root.actionIndex === index
+                onClicked: root.care.toggleMode(modelData.id)
+                onHovered: function(h) {
+                  if (h) {
+                    root.cursorActive = true
+                    root.cursorRow = "actions"
+                    root.actionIndex = index
+                  }
+                }
+              }
+            }
+          }
+
+          CareNote {
+            visible: root.careWritable && !!root.care && root.care.lastError !== ""
+            text: root.care ? root.care.lastError : ""
           }
         }
 
@@ -503,11 +724,12 @@ Panel {
                 verticalPadding: Style.spacing.controlPaddingY + Style.space(2)
                 bordered: true
                 active: root.activeProfile === modelData
-                hasCursor: root.cursorActive && root.profileIndex === index
+                hasCursor: root.cursorActive && root.cursorRow === "profiles" && root.profileIndex === index
                 onClicked: root.setProfile(modelData)
                 onHovered: function(h) {
                   if (h) {
                     root.cursorActive = true
+                    root.cursorRow = "profiles"
                     root.profileIndex = index
                   }
                 }
@@ -529,6 +751,64 @@ Panel {
     InfoLabel { text: label }
     Item { width: Math.max(0, parent.width - parent.children[0].implicitWidth - parent.children[2].implicitWidth - parent.spacing * 2); height: 1 }
     InfoValue { text: value }
+  }
+
+  component LimitSlider: CursorSurface {
+    id: limitRow
+    property string row: ""
+    property string label: ""
+    property int value: 0
+    property int minimum: 0
+    property int maximum: 100
+    signal movedTo(int value)
+    signal releasedAt(int value)
+
+    width: parent.width
+    height: limitColumn.implicitHeight + Style.spacing.controlGap
+    hasCursor: root.cursorActive && root.cursorRow === row
+    foreground: root.bar.foreground
+    outline: true
+
+    Column {
+      id: limitColumn
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.leftMargin: Style.space(6)
+      anchors.rightMargin: Style.space(6)
+      spacing: Style.space(2)
+
+      InfoPair { label: limitRow.label; value: root.reading(limitRow.value + "%") }
+
+      PanelSlider {
+        width: parent.width
+        bar: root.bar
+        minimum: limitRow.minimum
+        maximum: limitRow.maximum
+        step: 1
+        integer: true
+        value: limitRow.value
+        onMoved: function(v) { limitRow.movedTo(Math.round(v)) }
+        onReleased: function(v) { limitRow.releasedAt(Math.round(v)) }
+      }
+    }
+
+    HoverHandler {
+      onHoveredChanged: if (hovered) {
+        root.cursorActive = true
+        root.cursorRow = limitRow.row
+      }
+    }
+  }
+
+  component CareNote: Text {
+    width: parent.width
+    wrapMode: Text.Wrap
+    textFormat: Text.PlainText
+    color: root.bar.foreground
+    opacity: 0.7
+    font.family: root.bar.fontFamily
+    font.pixelSize: Style.font.bodySmall
   }
 
   component InfoLabel: Text {

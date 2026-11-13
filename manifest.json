@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "bettery",
+  "name": "Bettery Life",
+  "version": "0.1.0",
+  "author": "Tim Rudorf",
+  "description": "Omarchy's power widget with battery care: charge limit, sailing, top up, pause and discharge",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Bettery Life",
+    "description": "Battery, battery care, power profile, and system stats",
+    "category": "System",
+    "allowMultiple": false
+  },
+  "omarchy": {
+    "clonedFrom": "omarchy.power"
+  }
+}
